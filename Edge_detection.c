@@ -71,21 +71,6 @@ void displayImg(int img_row, int img_column, int pgmraw, int maxval, gray *graym
     fclose(OUTPUT_IMG);
 }
 
-// gray *converter(int row_of_img, int column_of_img, float *values, int pgmraw, int img_maxval, int threshold, char *name)
-// {
-//     gray *result_image;
-//     for (int i = 0; i < row_of_img; i++)
-//     {
-//         for (int j = 0; j < column_of_img; j++)
-//         {
-//             *(result_image + (i * column_of_img + j)) = (gray)(*(values + (i * column_of_img + j)));
-//         }
-//     }
-//     displayImg(row_of_img, column_of_img, pgmraw, img_maxval, result_image, threshold, name);
-
-//     return result_image;
-// }
-
 // gray *bilinear_filter(gray *img, int row_of_img, int column_of_img, int normalization_value, int pgmraw, int img_maxval, int threshold)
 // {
 //     gray *result_image;
@@ -112,22 +97,76 @@ void displayImg(int img_row, int img_column, int pgmraw, int maxval, gray *graym
 //     return result_image;
 // }
 
+void non_maximum_suppression(gray *gradients, int *direction, int rows, int columns)
+{
+
+    int direc_value, magn_value;
+
+    for (int x = 0; x < rows; x++)
+    {
+        for (int y = 0; y < columns; y++)
+        {
+
+            direc_value = *(direction + (x * columns + y));
+            switch (direc_value)
+            {
+            case 0:
+                if ((*(gradients + (x * columns + y))) < (*(gradients + (x * columns + y - 1))) || (*(gradients + (x * columns + y))) < (*(gradients + (x * columns + y + 1))))
+                {
+                    (*(gradients + (x * columns + y))) = 0;
+                }
+
+                break;
+
+            case 1:
+                if ((*(gradients + (x * columns + y))) < (*(gradients + ((x - 1) * columns + y - 1))) || (*(gradients + (x * columns + y))) < (*(gradients + ((x + 1) * columns + y + 1))))
+                {
+                    (*(gradients + (x * columns + y))) = 0;
+                }
+
+                break;
+
+            case 2:
+                if ((*(gradients + (x * columns + y))) < (*(gradients + ((x - 1) * columns + y - 1))) || (*(gradients + (x * columns + y))) < (*(gradients + ((x + 1) * columns + y + 1))))
+                {
+                    (*(gradients + (x * columns + y))) = 0;
+                }
+
+                break;
+
+            case 3:
+                if ((*(gradients + (x * columns + y))) < (*(gradients + ((x - 1) * columns + y + 1))) || (*(gradients + (x * columns + y))) < (*(gradients + ((x + 1) * columns + y - 1))))
+                {
+                    (*(gradients + (x * columns + y))) = 0;
+                }
+
+                break;
+
+            default:
+                break;
+            }
+        }
+    }
+}
+
 void Scharr_gradient(gray *img, int row_of_img, int column_of_img, int normalization_value, int pgmraw, int img_maxval, int threshold)
 {
     gray *result_image;
-    float square = 0;
+    float square = 0, arctan = 0;
     float *horizontal, *vertical;
+    int *direction_image;
     int filter_x[3][3] = {
-        {-1, -2, -1},
+        {-3, -10, -3},
         {0, 0, 0},
-        {1, 2, 1}};
+        {3, 10, 3}};
 
     int filter_y[3][3] = {
-        {-1, 0, 1},
-        {-2, 0, 2},
-        {-1, 0, 1}};
+        {-3, 0, 3},
+        {-10, 0, 10},
+        {-3, 0, 3}};
 
     result_image = (gray *)malloc(row_of_img * column_of_img * sizeof(gray));
+    direction_image = (int *)malloc(row_of_img * column_of_img * sizeof(int));
 
     horizontal = convolution(&filter_x[0][0], 3, 3, img, row_of_img, column_of_img, normalization_value);
     // converter(row_of_img, column_of_img, horizontal, pgmraw, img_maxval, threshold, "Horizontal_Image.pgm");
@@ -155,15 +194,40 @@ void Scharr_gradient(gray *img, int row_of_img, int column_of_img, int normaliza
         for (int j = 0; j < column_of_img; j++)
         {
             square = pow((*(horizontal + (i * column_of_img + j))), 2) + pow((*(vertical + (i * column_of_img + j))), 2);
-
             *(result_image + (i * column_of_img + j)) = (gray)(round(sqrt(square)));
+
+            arctan = atanf((*(vertical + (i * column_of_img + j))) / (*(horizontal + (i * column_of_img + j))));
+            arctan = arctan * 180 / 3.1415926;
+            
+
+            if (arctan <= 22.5 || arctan > 157.5)
+            {
+                *(direction_image + (i * column_of_img + j)) = 0; // 0 degree
+            }
+            else if (arctan <= 67.5)
+            {
+                *(direction_image + (i * column_of_img + j)) = 1; // 45 degree
+            }
+            else if (arctan <= 112.5)
+            {
+                *(direction_image + (i * column_of_img + j)) = 2; // 90 degree
+            }
+            else if (arctan <= 157.5)
+            {
+                *(direction_image + (i * column_of_img + j)) = 3; // 135 degree
+            }
         }
     }
     displayImg(row_of_img, column_of_img, pgmraw, img_maxval, result_image, threshold, "Gradient_Magnitude.pgm");
 
+    non_maximum_suppression(result_image, direction_image, row_of_img, column_of_img);
+
+    displayImg(row_of_img, column_of_img, pgmraw, img_maxval, result_image, threshold, "Non_Maximum_Suppression.pgm");
+
     free(horizontal);
     free(vertical);
     free(result_image);
+    free(direction_image);
 }
 
 int openImg()
@@ -227,7 +291,7 @@ int main(int argc, char **argv)
 
     threshold = atoi(argv[1]);
     pgmraw = openImg();
-    norm_val = 4;
+    norm_val = 16;
     img_column = pm_getint(PGM_FILE);
     img_row = pm_getint(PGM_FILE);
     img_maxval = pm_getint(PGM_FILE);
@@ -239,7 +303,7 @@ int main(int argc, char **argv)
 
     /*Reading Image into Array*/
     readImage(img_row, img_column, pgmraw, img_ptr);
-    //result_array = bilinear_filter(img_ptr, img_row, img_column, norm_val, pgmraw, img_maxval, 16);
+    // result_array = bilinear_filter(img_ptr, img_row, img_column, norm_val, pgmraw, img_maxval, 16);
     Scharr_gradient(img_ptr, img_row, img_column, norm_val, pgmraw, img_maxval, threshold);
 
     // displayImg(img_row, img_column, pgmraw, img_maxval, result_array,threshold);
